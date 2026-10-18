@@ -1,0 +1,59 @@
+# Development stack: MySQL + Redis + API (ASGI) + Celery worker + Celery Beat
+# Start:  docker compose up --build
+x-app: &app
+  build: .
+  env_file: .env.docker
+  depends_on:
+    db:
+      condition: service_healthy
+    redis:
+      condition: service_started
+  volumes:
+    - .:/app
+
+services:
+  db:
+    image: mysql:8.4
+    environment:
+      MYSQL_DATABASE: supportdesk
+      MYSQL_USER: supportdesk
+      MYSQL_PASSWORD: supportdesk
+      MYSQL_ROOT_PASSWORD: rootpass
+    volumes:
+      - mysql_data:/var/lib/mysql
+    ports:
+      - "3307:3306"
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-prootpass"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+
+  web:
+    <<: *app
+    # DEV convenience: generate migrations if missing, migrate, then serve.
+    # In production, commit migrations and run only `migrate` as a release step.
+    command: >
+      sh -c "python manage.py makemigrations accounts tickets --noinput &&
+             python manage.py migrate --noinput &&
+             python manage.py runserver 0.0.0.0:8000"
+    ports:
+      - "8000:8000"
+
+  worker:
+    <<: *app
+    command: celery -A config worker -l info
+    depends_on:
+      - web
+
+  beat:
+    <<: *app
+    command: celery -A config beat -l info
+    depends_on:
+      - web
+
+volumes:
+  mysql_data:
