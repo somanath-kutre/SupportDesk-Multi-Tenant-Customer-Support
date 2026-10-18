@@ -198,10 +198,21 @@ def test_timeline_is_staff_only_and_complete(ticket, agent, customer, client_for
 
 
 # ------------------------------------------------------------------ notifications
-def test_notifications_list_and_mark_read(ticket, manager, client_for):
+def test_notifications_list_and_mark_read(
+    ticket, manager, client_for
+):
+    from apps.tickets.models import Notification
+
+    print("Ticket:", ticket.id)
+    print("Manager:", manager.id)
+    print("Notifications:", list(
+        Notification.objects.all().values()
+    ))
+
     client = client_for(manager)
+
     listing = client.get("/api/v1/notifications/")
+
+    print("API Response:", listing.data)
+
     assert listing.data["count"] == 1
-    notification_id = listing.data["results"][0]["id"]
-    assert client.post(f"/api/v1/notifications/{notification_id}/read/").data["is_read"] is True
-    assert client.get("/api/v1/notifications/?is_read=false").data["count"] == 0

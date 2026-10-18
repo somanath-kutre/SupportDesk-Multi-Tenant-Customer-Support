@@ -1,59 +1,52 @@
-# Development stack: MySQL + Redis + API (ASGI) + Celery worker + Celery Beat
-# Start:  docker compose up --build
+name: supportdesk
+
 x-app: &app
-  build: .
-  env_file: .env.docker
-  depends_on:
-    db:
-      condition: service_healthy
-    redis:
-      condition: service_started
+  build:
+    context: .
+    dockerfile: Dockerfile
+  env_file:
+    - .env.docker
   volumes:
     - .:/app
+  restart: unless-stopped
 
 services:
-  db:
-    image: mysql:8.4
-    environment:
-      MYSQL_DATABASE: supportdesk
-      MYSQL_USER: supportdesk
-      MYSQL_PASSWORD: supportdesk
-      MYSQL_ROOT_PASSWORD: rootpass
-    volumes:
-      - mysql_data:/var/lib/mysql
-    ports:
-      - "3307:3306"
-    healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-prootpass"]
-      interval: 5s
-      timeout: 5s
-      retries: 20
 
   redis:
     image: redis:7-alpine
+    ports:
+      - "127.0.0.1:6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
 
   web:
     <<: *app
-    # DEV convenience: generate migrations if missing, migrate, then serve.
-    # In production, commit migrations and run only `migrate` as a release step.
     command: >
-      sh -c "python manage.py makemigrations accounts tickets --noinput &&
-             python manage.py migrate --noinput &&
-             python manage.py runserver 0.0.0.0:8000"
+      sh -c "python manage.py migrate --noinput &&
+             daphne -b 0.0.0.0 -p 8000 config.asgi:application"
     ports:
       - "8000:8000"
+    depends_on:
+      redis:
+        condition: service_healthy
 
   worker:
     <<: *app
-    command: celery -A config worker -l info
+    command: celery -A config worker --loglevel=info
     depends_on:
-      - web
+      redis:
+        condition: service_healthy
+      web:
+        condition: service_started
 
   beat:
     <<: *app
-    command: celery -A config beat -l info
+    command: celery -A config beat --loglevel=info
     depends_on:
-      - web
-
-volumes:
-  mysql_data:
+      redis:
+        condition: service_healthy
+      web:
+        condition: service_started
